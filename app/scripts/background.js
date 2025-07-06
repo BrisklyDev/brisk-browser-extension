@@ -1,5 +1,8 @@
 import * as browser from 'webextension-polyfill';
-import {sendRequestToBrisk} from "./common";
+import {
+    checkBriskRunning,
+    defaultSettings, isCaptureEnabled, isResponseWaitEnabled, sendRequestToBrisk, setCachedSettings, settingCache
+} from "./common";
 
 let m3u8UrlsByTab = {};
 let vttUrlsByTab = {};
@@ -13,8 +16,13 @@ if (!isFirefox) {
     extraInfoSpec.push("extraHeaders");
 }
 
-browser.runtime.onInstalled.addListener(() => {
-    browser.storage.sync.set({briskPort: 3020});
+browser.runtime.onInstalled.addListener(async () => {
+    await browser.storage.sync.set({
+        briskPort: defaultSettings.port,
+        briskResponseWaitEnabled: defaultSettings.briskResponseWaitEnabled,
+        briskCaptureEnabled: defaultSettings.captureEnabled,
+    });
+    await setCachedSettings();
 });
 
 browser.downloads.onCreated.addListener(sendBriskDownloadAdditionRequest);
@@ -107,14 +115,31 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
 
 
 async function sendBriskDownloadAdditionRequest(downloadItem) {
+    if (!(await isCaptureEnabled())) {
+        return;
+    }
+    try {
+        await checkBriskRunning();
+    } catch (e) {
+        return;
+    }
     let body = {
         "type": "single", "data": {
             'url': downloadItem.url, 'referer': downloadItem.referrer
         }
     };
-    let response = await sendRequestToBrisk(body);
-    let json = await response.json();
-    if (response.status === 200 && json["captured"]) {
+    let response;
+    try {
+        response = await sendRequestToBrisk(body);
+    } catch (e) {
+        return;
+    }
+    if (await isResponseWaitEnabled()) {
+        let json = await response.json();
+        if (json["captured"]) {
+            await removeBrowserDownload(downloadItem.id);
+        }
+    } else {
         await removeBrowserDownload(downloadItem.id);
     }
 }

@@ -2,7 +2,7 @@
   "name": "Brisk",
   "short_name": "Brisk",
   "description": "Browser extension for Brisk download manager",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "__firefox__browser_specific_settings": {
     "gecko": {
       "id": "{9ca5a4a8-58d1-4a47-8e0d-5e53a21c9a7b}"

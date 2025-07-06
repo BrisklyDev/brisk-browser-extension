@@ -1,5 +1,14 @@
 import * as browser from 'webextension-polyfill';
-import {sendRequestToBrisk, extractResolution} from "./common";
+import {
+    sendRequestToBrisk,
+    extractResolution,
+    defaultSettings,
+    setCachedSettings,
+    getSettingsFromStorage
+} from "./common";
+
+const tooltipEnabledText = "If disabled, downloads are immediately cancelled even if Brisk fails to get the file info.<br>(Downloads are not cancelled if Brisk is not running in the background)";
+const tooltipDisabledText = "If enabled, the extension waits for a response from Brisk that determines this file can be downloaded before cancelling the browser download.<br>";
 
 async function createM3u8List(tabId, m3u8Urls, listContainer) {
     let suggestedName = await browser.tabs.sendMessage(tabId, {type: 'get-suggested-video-name'});
@@ -31,9 +40,7 @@ function resolveSuggestedName(obj, suggestedName, handleMaster) {
     }
     let resolution = extractResolution(fileNameFromUrl);
     if (suggestedName.endsWith(".mp4")) {
-        return resolution
-            ? `${suggestedName}.${resolution}.mp4`
-            : `${suggestedName}.mp4`;
+        return resolution ? `${suggestedName}.${resolution}.mp4` : `${suggestedName}.mp4`;
     } else if (handleMaster && fileNameFromUrl.includes("master")) {
         return `${suggestedName}.all.resolutions.ts`;
     } else {
@@ -49,12 +56,8 @@ function registerVideoStreamDownloadClickListener(downloadButton, obj) {
         suggestedName = resolveSuggestedName(obj, suggestedName, false);
         if (obj.url.endsWith(".mp4") || obj.url.endsWith(".webm")) {
             let body = {
-                'type': 'single',
-                'data': {
-                    'url': obj.url,
-                    'referer': tab.url,
-                    'suggestedName': suggestedName,
-                    'refererHeader': obj.referer,
+                'type': 'single', 'data': {
+                    'url': obj.url, 'referer': tab.url, 'suggestedName': suggestedName, 'refererHeader': obj.referer,
                 }
             };
             await sendRequestToBrisk(body);
@@ -77,29 +80,46 @@ async function getCurrentTabId() {
     return tabs[0].id;
 }
 
+function handleDynamicTooltipMessage(responseWaitEnabledCheckbox, tooltip) {
+    function updateTooltip() {
+        tooltip.innerHTML = responseWaitEnabledCheckbox.checked ? tooltipEnabledText : tooltipDisabledText;
+    }
+
+    updateTooltip();
+    responseWaitEnabledCheckbox.addEventListener('change', updateTooltip);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    const tooltip = document.getElementById('wait-tooltip');
     const portInput = document.getElementById('port');
-    const savePortButton = document.getElementById('save-port');
-    browser.storage.local.get('briskPort').then((data) => {
-        if (data.briskPort) {
-            portInput.value = data.briskPort;
-        } else {
-            portInput.value = 3020;
-        }
-    }).catch((error) => {
-        console.error('Failed to load port from storage:', error);
+    const saveButton = document.getElementById('save-port');
+    const enableCaptureCheckbox = document.getElementById('enable-capture');
+    const responseWaitEnabledCheckbox = document.getElementById('enable-wait-brisk-response');
+
+    getSettingsFromStorage().then((data) => {
+        portInput.value = data.briskPort ?? defaultSettings.port;
+        enableCaptureCheckbox.checked = data.briskCaptureEnabled ?? defaultSettings.captureEnabled;
+        responseWaitEnabledCheckbox.checked = data.briskResponseWaitEnabled ?? defaultSettings.briskResponseWaitEnabled;
+    }).catch((a) => {
+        console.log(a);
+        portInput.value = defaultSettings.port;
+        enableCaptureCheckbox.checked = defaultSettings.captureEnabled;
+        responseWaitEnabledCheckbox.checked = defaultSettings.briskResponseWaitEnabled;
     });
-    savePortButton.addEventListener('click', () => {
-        const port = portInput.value;
-        if (port >= 1 && port <= 65535) {
-            browser.storage.local.set({briskPort: port}).then(() => {
-                alert('Port saved successfully!');
-            }).catch((error) => {
-                console.error('Failed to save port:', error);
-            });
-        } else {
+
+    handleDynamicTooltipMessage(responseWaitEnabledCheckbox, tooltip);
+    saveButton.addEventListener('click', async () => {
+        const port = Number(portInput.value);
+        if (port <= 1 || port >= 65535) {
             alert('Please enter a valid port number (1-65535).');
+            return;
         }
+        await browser.storage.sync.set({
+            briskPort: port,
+            briskCaptureEnabled: enableCaptureCheckbox.checked,
+            briskResponseWaitEnabled: responseWaitEnabledCheckbox.checked,
+        });
+        alert("Settings saves successfully");
     });
 });
 

@@ -12,11 +12,26 @@
         <button class="tab-button active" data-tab="video-streams">🎥 Video Streams</button>
         <button class="tab-button" data-tab="settings">⚙️ Settings</button>
     </div>
-    <div class="tab-content active" id="video-streams">
+    <div class="tab-content" id="video-streams">
         <ul id="m3u8-list" class="streams-list">
         </ul>
     </div>
     <div class="tab-content" id="settings">
+        <div class="toggle-setting">
+            <label class="switch">
+                <input type="checkbox" id="enable-capture">
+                <span class="slider"></span>
+            </label>
+            <span class="label-text">Enable download capture</span>
+        </div>
+        <div class="toggle-setting">
+            <label class="switch tooltip-wrapper">
+                <input type="checkbox" id="enable-wait-brisk-response">
+                <span class="slider"></span>
+                <span class="tooltip-text" id="wait-tooltip"></span>
+            </label>
+            <span class="label-text">Wait for Brisk's response before cancelling browser download</span>
+        </div>
         <div class="port-setting">
             <label for="port">Port:</label>
             <input type="number" id="port" placeholder="3020" min="1" max="65535">
