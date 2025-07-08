@@ -1,28 +1,34 @@
 import * as browser from 'webextension-polyfill';
 import {
     checkBriskRunning,
-    defaultSettings, isCaptureEnabled, isResponseWaitEnabled, sendRequestToBrisk, setCachedSettings, settingCache
+    defaultSettings, fetchM3u8DataViaBrisk,
+    isCaptureEnabled, isLocalhostUrl,
+    isResponseWaitEnabled,
+    sendRequestToBrisk
 } from "./common";
 
-let m3u8UrlsByTab = {};
-let vttUrlsByTab = {};
-let videoUrlsByTab = {};
 let downloadHrefs;
 createContextMenuItem();
-
 const isFirefox = navigator.userAgent.includes("Firefox");
 const extraInfoSpec = ["requestHeaders"];
 if (!isFirefox) {
     extraInfoSpec.push("extraHeaders");
 }
 
+const sessionSaveBuffer = {};
+const seenUrls = [];
+
+/// TODO change to master url
 browser.runtime.onInstalled.addListener(async () => {
+    /// TODO TO BE REMOVED
+    await browser.storage.sync.remove("briskM3u8NameResolver");
+    let response = await fetch("https://raw.githubusercontent.com/BrisklyDev/brisk-extension-dynamic-plugins/refs/heads/developer/m3u8-name-resolver.json");
     await browser.storage.sync.set({
         briskPort: defaultSettings.port,
         briskResponseWaitEnabled: defaultSettings.briskResponseWaitEnabled,
         briskCaptureEnabled: defaultSettings.captureEnabled,
+        briskM3u8NameResolver: await response.json(),
     });
-    await setCachedSettings();
 });
 
 browser.downloads.onCreated.addListener(sendBriskDownloadAdditionRequest);
@@ -30,17 +36,36 @@ browser.downloads.onCreated.addListener(sendBriskDownloadAdditionRequest);
 browser.runtime.onMessage.addListener((message) => downloadHrefs = message);
 
 browser.webRequest.onBeforeSendHeaders.addListener(async (details) => {
+    const refererHeader = details.requestHeaders.find((h) => h.name.toLowerCase() === 'referer');
+    const cookieHeader = details.requestHeaders.find((h) => h.name.toLowerCase() === 'cookie');
+    //
+    // if (refererHeader) {
+    //     console.log('Referer:', refererHeader?.value);
+    // }
+    // if (cookieHeader) {
+    //     console.log('Cookie:', cookieHeader?.value);
+    // }
+    //
     handleVideoStreams(details);
-}, {urls: ['<all_urls>']}, extraInfoSpec);
+}, {urls: ['<all_urls>']}, ['requestHeaders']);
 
-
-function handleVideoStreams(details) {
+async function handleVideoStreams(details) {
     const {tabId, url, requestHeaders} = details;
     const refererHeader = requestHeaders.find(h => h.name.toLowerCase() === 'referer');
     const referer = refererHeader?.value || null;
     const pathName = new URL(url).pathname;
+    if (seenUrls.includes(url) || isLocalhostUrl(url)) {
+        return;
+    }
     if (pathName.endsWith('m3u8')) {
-        addUrlToTab(m3u8UrlsByTab, tabId, url, referer);
+        seenUrls.push(url);
+        fetchM3u8DataViaBrisk(url, referer, tabId);
+        console.log("THE M3U8 REFERER");
+        console.log(referer);
+        await saveUrlDataToSession('m3u8', tabId, url, referer);
+        await browser.tabs.sendMessage(tabId, {
+            type: "m3u8-detected", url: url, referer: referer,
+        },);
     }
     // For aniplaynow.live
     if (url.includes("/m3u8-proxy")) {
@@ -53,49 +78,92 @@ function handleVideoStreams(details) {
             const headers = JSON.parse(headersParam);
             realReferer = headers.Referer;
         }
-        console.log(`realM3u8 ${realM3u8Url}`);
-        console.log(`real header ${realReferer}`);
-        addUrlToTab(m3u8UrlsByTab, tabId, realM3u8Url, realReferer);
+        fetchM3u8DataViaBrisk(url, referer, tabId);
+        await saveUrlDataToSession('m3u8', tabId, url, referer);
+        await browser.tabs.sendMessage(tabId, {
+            type: "m3u8-detected", url: url, referer: referer,
+        },);
     } else if (url.endsWith('.vtt')) {
+        console.log(`vtt url found ${url}`);
         console.log(`vtt referer ${referer}`);
-        addUrlToTab(vttUrlsByTab, tabId, url, referer);
+        await saveUrlDataToSession('vtt', tabId, url, referer);
     } else if (url.endsWith(".mp4") || url.endsWith(".webm")) {
-        addUrlToTab(videoUrlsByTab, tabId, url, referer);
+        browser.tabs.sendMessage(tabId, {type: "video-detected",});
+        await saveUrlDataToSession('video', tabId, url, referer);
+        await browser.tabs.sendMessage(tabId, {
+            type: "video-detected", url: url, referer: referer,
+        },);
     }
 }
 
-function addUrlToTab(urlsByTab, tabId, url, referer) {
-    if (!urlsByTab[tabId]) {
-        urlsByTab[tabId] = [];
+function scheduleSessionSave(key) {
+    if (sessionSaveBuffer[key].timeout) clearTimeout(sessionSaveBuffer[key].timeout);
+    sessionSaveBuffer[key].timeout = setTimeout(() => {
+        browser.storage.session.set({[key]: sessionSaveBuffer[key].data});
+        sessionSaveBuffer[key].timeout = null;
+    }, 300);
+}
+
+async function saveUrlDataToSession(type, tabId, url, referer) {
+    const key = `briskTab${tabId}`;
+    if (!sessionSaveBuffer[key]) sessionSaveBuffer[key] = {data: {}, timeout: null};
+    let value = sessionSaveBuffer[key].data;
+
+    if (!value[type]) value[type] = [];
+
+    const exists = value[type].some(item => item.url === url && item.referer === referer);
+    if (exists) {
+        console.log("Duplicate found, not adding:", {url, referer});
+        return;
     }
-    if (!urlsByTab[tabId].includes(url)) {
-        urlsByTab[tabId].push({url: url, referer: referer});
+
+    const obj = {url, referer};
+
+    if (type === 'm3u8') {
     }
+
+    value[type].push(obj);
+    console.log("Added to buffer", value);
+    scheduleSessionSave(key);
 }
 
 // Listen for tab reload events to clear the m3u8 URLs for that tab
-browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (changeInfo.status === 'complete') {
-        m3u8UrlsByTab[tabId] = [];
-        vttUrlsByTab[tabId] = [];
-        videoUrlsByTab[tabId] = [];
-    }
-});
+// browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+//     // const key = `briskTab${tabId}`;
+//     // let result = await browser.storage.session.get(key);
+//     // if (changeInfo.status === 'complete') {
+//     //     m3u8UrlsByTab[tabId] = [];
+//     //     vttUrlsByTab[tabId] = [];
+//     //     videoUrlsByTab[tabId] = [];
+//     // }
+// });
 
 // Listen for requests from popup to get m3u8 URLs for the current tab
+browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+    if (message.type === 'log') {
+        console.log(message.payload);
+    }
+})
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log(message);
-    if (message.type === 'get-m3u8-list') {
-        let urls = m3u8UrlsByTab[message.tabId] || [];
-        if (videoUrlsByTab[message.tabId]) {
-            urls.push(...videoUrlsByTab[message.tabId]);
+    const key = `briskTab${message.tabId}`;
+
+    // Use promise and call sendResponse when ready
+    browser.storage.session.get(key).then((result) => {
+        let value = result[key] ?? {};
+        if (message.type === 'get-m3u8-list') {
+            let urls = value['m3u8'] || [];
+            let videos = value['video'] || [];
+            if (videos) {
+                urls.push(...videos);
+            }
+            console.log("THE URLS M#U*");
+            console.log(urls);
+            sendResponse({m3u8Urls: urls});
+        } else if (message.type === 'get-vtt-list') {
+            sendResponse({vttUrls: value['vtt'] || []});
         }
-        sendResponse({m3u8Urls: urls});
-    }
-    if (message.type === 'get-vtt-list') {
-        const urls = vttUrlsByTab[message.tabId] || [];
-        sendResponse({vttUrls: urls});
-    }
+    });
+    return true;
 });
 
 browser.contextMenus.onClicked.addListener(async (info, tab) => {
