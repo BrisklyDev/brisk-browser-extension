@@ -1,4 +1,5 @@
 import * as browser from "webextension-polyfill";
+import {log} from "./content-script";
 
 export const defaultSettings = {
     port: 3020,
@@ -54,6 +55,7 @@ export async function fetchM3u8DataViaBrisk(url, referer, tabId) {
     await browser.tabs.sendMessage(tabId, {
         type: "inject-download-video-button",
         tabId: tabId,
+        data: savedM3u8,
     },);
 }
 

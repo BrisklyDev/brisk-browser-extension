@@ -127,27 +127,21 @@ async function saveUrlDataToSession(type, tabId, url, referer) {
     scheduleSessionSave(key);
 }
 
-// Listen for tab reload events to clear the m3u8 URLs for that tab
-// browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-//     // const key = `briskTab${tabId}`;
-//     // let result = await browser.storage.session.get(key);
-//     // if (changeInfo.status === 'complete') {
-//     //     m3u8UrlsByTab[tabId] = [];
-//     //     vttUrlsByTab[tabId] = [];
-//     //     videoUrlsByTab[tabId] = [];
-//     // }
-// });
-
 // Listen for requests from popup to get m3u8 URLs for the current tab
-browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+browser.runtime.onMessage.addListener(async (message) => {
     if (message.type === 'log') {
         console.log(message.payload);
     }
 })
+
+browser.runtime.onMessage.addListener((message, sender) => {
+    if (message.type === 'get-vtt') {
+        return Promise.resolve("Asdkasodkasodapsd");
+    }
+});
+
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const key = `briskTab${message.tabId}`;
-
-    // Use promise and call sendResponse when ready
     browser.storage.session.get(key).then((result) => {
         let value = result[key] ?? {};
         if (message.type === 'get-m3u8-list') {
@@ -156,11 +150,12 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (videos) {
                 urls.push(...videos);
             }
-            console.log("THE URLS M#U*");
-            console.log(urls);
+            console.log("Getting m3u8====================================");
             sendResponse({m3u8Urls: urls});
         } else if (message.type === 'get-vtt-list') {
-            sendResponse({vttUrls: value['vtt'] || []});
+            console.log("Vtt inside background.js");
+            console.log(value['vtt']);
+            sendResponse({vttUrls: 'asdaposdkaspodkasd'});
         }
     });
     return true;
