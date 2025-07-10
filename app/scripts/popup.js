@@ -3,8 +3,7 @@ import {
     sendRequestToBrisk,
     extractResolution,
     defaultSettings,
-    setCachedSettings,
-    getSettingsFromStorage
+    getSettingsFromStorage, getSessionStoredValue
 } from "./common";
 
 const tooltipEnabledText = "If disabled, downloads are immediately cancelled even if Brisk fails to get the file info.<br>(Downloads are not cancelled if Brisk is not running in the background)";
@@ -52,7 +51,7 @@ function registerVideoStreamDownloadClickListener(downloadButton, obj) {
     downloadButton.addEventListener('click', async () => {
         let tabId = await getCurrentTabId();
         const tab = await browser.tabs.get(tabId);
-        let suggestedName = await browser.tabs.sendMessage(tabId, {type: 'get-suggested-video-name'});
+        let suggestedName = await browser.tabs.sendMessage(tabId, {type: 'get-suggested-video-name', 'tabId': tabId});
         suggestedName = resolveSuggestedName(obj, suggestedName, false);
         if (obj.url.endsWith(".mp4") || obj.url.endsWith(".webm")) {
             let body = {
@@ -62,11 +61,11 @@ function registerVideoStreamDownloadClickListener(downloadButton, obj) {
             };
             await sendRequestToBrisk(body);
         } else {
-            let vttUrls = await browser.runtime.sendMessage({type: 'get-vtt-list', tabId});
+            let vttUrls = await getSessionStoredValue(tabId, 'vtt');
             await sendRequestToBrisk({
                 'type': 'm3u8',
                 'm3u8Url': obj.url,
-                'vttUrls': vttUrls['vttUrls'],
+                'vttUrls': vttUrls,
                 'referer': tab.url,
                 'suggestedName': suggestedName,
                 'refererHeader': obj.referer,
@@ -101,7 +100,6 @@ document.addEventListener('DOMContentLoaded', () => {
         enableCaptureCheckbox.checked = data.briskCaptureEnabled ?? defaultSettings.captureEnabled;
         responseWaitEnabledCheckbox.checked = data.briskResponseWaitEnabled ?? defaultSettings.briskResponseWaitEnabled;
     }).catch((a) => {
-        console.log(a);
         portInput.value = defaultSettings.port;
         enableCaptureCheckbox.checked = defaultSettings.captureEnabled;
         responseWaitEnabledCheckbox.checked = defaultSettings.briskResponseWaitEnabled;
@@ -126,11 +124,17 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('DOMContentLoaded', () => {
     const listContainer = document.getElementById('m3u8-list');
     browser.tabs.query({active: true, currentWindow: true}).then((tabs) => {
-        const tabId = tabs[0].id; // Get current tab's ID
-        browser.runtime.sendMessage({type: 'get-m3u8-list', tabId}).then((response) => {
-            console.log(`m3u8 received ${response.m3u8Urls}`);
-            createM3u8List(tabId, response.m3u8Urls, listContainer);
-        });
+        const tabId = tabs[0].id;
+            const key = `briskTab${tabId}`;
+            browser.storage.session.get(key).then(result => {
+                let value = result[key] ?? {};
+                let urls = value['m3u8'] || [];
+                let videos = value['video'] || [];
+                if (videos) {
+                    urls.push(...videos);
+                }
+                createM3u8List(tabId, urls, listContainer);
+            });
     });
 });
 
