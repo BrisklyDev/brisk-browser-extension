@@ -1,33 +1,27 @@
 import * as browser from 'webextension-polyfill';
 import {
     checkBriskRunning,
-    defaultSettings, fetchM3u8DataViaBrisk,
-    isCaptureEnabled, isLocalhostUrl,
+    defaultSettings, fetchM3u8DataViaBrisk, getExtension,
+    isCaptureEnabled, isFirefox, isLocalhostUrl,
     isResponseWaitEnabled,
-    sendRequestToBrisk
+    sendRequestToBrisk, sendVttToBrisk
 } from "./common";
+import {refreshResolvers} from "./m3u8-name-resolver";
+
+refreshResolvers();
 
 let downloadHrefs;
 createContextMenuItem();
-const isFirefox = navigator.userAgent.includes("Firefox");
-const extraInfoSpec = ["requestHeaders"];
-if (!isFirefox) {
-    extraInfoSpec.push("extraHeaders");
-}
-
 const sessionSaveBuffer = {};
 const seenUrls = [];
+let urlCookies = {};
 
 /// TODO change to master url
 browser.runtime.onInstalled.addListener(async () => {
-    /// TODO TO BE REMOVED
-    await browser.storage.sync.remove("briskM3u8NameResolver");
-    let response = await fetch("https://raw.githubusercontent.com/BrisklyDev/brisk-extension-dynamic-plugins/refs/heads/developer/m3u8-name-resolver.json");
     await browser.storage.sync.set({
         briskPort: defaultSettings.port,
         briskResponseWaitEnabled: defaultSettings.briskResponseWaitEnabled,
         briskCaptureEnabled: defaultSettings.captureEnabled,
-        briskM3u8NameResolver: await response.json(),
     });
 });
 
@@ -36,18 +30,12 @@ browser.downloads.onCreated.addListener(sendBriskDownloadAdditionRequest);
 browser.runtime.onMessage.addListener((message) => downloadHrefs = message);
 
 browser.webRequest.onBeforeSendHeaders.addListener(async (details) => {
-    const refererHeader = details.requestHeaders.find((h) => h.name.toLowerCase() === 'referer');
     const cookieHeader = details.requestHeaders.find((h) => h.name.toLowerCase() === 'cookie');
-    //
-    // if (refererHeader) {
-    //     console.log('Referer:', refererHeader?.value);
-    // }
-    // if (cookieHeader) {
-    //     console.log('Cookie:', cookieHeader?.value);
-    // }
-    //
+    if (cookieHeader) {
+        urlCookies[details.url] = cookieHeader.value;
+    }
     handleVideoStreams(details);
-}, {urls: ['<all_urls>']}, ['requestHeaders']);
+}, {urls: ['<all_urls>']}, isFirefox ? ['requestHeaders'] : ['requestHeaders', 'extraHeaders']);
 
 async function handleVideoStreams(details) {
     const {tabId, url, requestHeaders} = details;
@@ -60,12 +48,7 @@ async function handleVideoStreams(details) {
     if (pathName.endsWith('m3u8')) {
         seenUrls.push(url);
         fetchM3u8DataViaBrisk(url, referer, tabId);
-        console.log("THE M3U8 REFERER");
-        console.log(referer);
         await saveUrlDataToSession('m3u8', tabId, url, referer);
-        await browser.tabs.sendMessage(tabId, {
-            type: "m3u8-detected", url: url, referer: referer,
-        },);
     }
     // For aniplaynow.live
     if (url.includes("/m3u8-proxy")) {
@@ -80,19 +63,24 @@ async function handleVideoStreams(details) {
         }
         fetchM3u8DataViaBrisk(url, referer, tabId);
         await saveUrlDataToSession('m3u8', tabId, url, referer);
-        await browser.tabs.sendMessage(tabId, {
-            type: "m3u8-detected", url: url, referer: referer,
-        },);
     } else if (url.endsWith('.vtt')) {
-        console.log(`vtt url found ${url}`);
-        console.log(`vtt referer ${referer}`);
+        sendVttToBrisk(url, referer, tabId);
         await saveUrlDataToSession('vtt', tabId, url, referer);
     } else if (url.endsWith(".mp4") || url.endsWith(".webm")) {
-        browser.tabs.sendMessage(tabId, {type: "video-detected",});
         await saveUrlDataToSession('video', tabId, url, referer);
-        await browser.tabs.sendMessage(tabId, {
-            type: "video-detected", url: url, referer: referer,
+        let suggestedName = await browser.tabs.sendMessage(tabId, {
+            type: "get-suggested-video-name",
+            fileExtension: getExtension(url),
         },);
+        await browser.tabs.sendMessage(tabId, {
+            type: "inject-download-video-button",
+            tabId: tabId,
+            isM3u8: false,
+            referer: referer,
+            url: url,
+            suggestedName: suggestedName,
+        },);
+
     }
 }
 
@@ -113,7 +101,6 @@ async function saveUrlDataToSession(type, tabId, url, referer) {
 
     const exists = value[type].some(item => item.url === url && item.referer === referer);
     if (exists) {
-        console.log("Duplicate found, not adding:", {url, referer});
         return;
     }
 
@@ -123,7 +110,6 @@ async function saveUrlDataToSession(type, tabId, url, referer) {
     }
 
     value[type].push(obj);
-    console.log("Added to buffer", value);
     scheduleSessionSave(key);
 }
 
@@ -133,12 +119,6 @@ browser.runtime.onMessage.addListener(async (message) => {
         console.log(message.payload);
     }
 })
-
-browser.runtime.onMessage.addListener((message, sender) => {
-    if (message.type === 'get-vtt') {
-        return Promise.resolve("Asdkasodkasodapsd");
-    }
-});
 
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const key = `briskTab${message.tabId}`;
@@ -150,19 +130,14 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (videos) {
                 urls.push(...videos);
             }
-            console.log("Getting m3u8====================================");
             sendResponse({m3u8Urls: urls});
-        } else if (message.type === 'get-vtt-list') {
-            console.log("Vtt inside background.js");
-            console.log(value['vtt']);
-            sendResponse({vttUrls: 'asdaposdkaspodkasd'});
         }
     });
     return true;
 });
 
 browser.contextMenus.onClicked.addListener(async (info, tab) => {
-    if (info.menuItemId === "brisk-download") {
+    if (info.menuItemId === "brisk-download-selection") {
         let body = {
             "type": "multi", "data": {
                 "referer": tab.url, downloadHrefs
@@ -174,6 +149,20 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
             console.error("Failed to send request to Brisk!");
         }
     }
+    if (info.menuItemId === "brisk-download") {
+        let body = {
+            "type": "single", "data": {
+                "referer": tab.url,
+                "url": info.linkUrl,
+            },
+        };
+        try {
+            await sendRequestToBrisk(body);
+        } catch (e) {
+            console.error("Failed to send request to Brisk!");
+        }
+    }
+
 });
 
 
@@ -191,6 +180,9 @@ async function sendBriskDownloadAdditionRequest(downloadItem) {
             'url': downloadItem.url, 'referer': downloadItem.referrer
         }
     };
+    if (urlCookies[downloadItem.url]) {
+        body['data']['cookie'] = urlCookies[downloadItem.url];
+    }
     let response;
     try {
         response = await sendRequestToBrisk(body);
@@ -216,9 +208,12 @@ async function removeBrowserDownload(id) {
 function createContextMenuItem() {
     browser.contextMenus.removeAll().then(() => {
         browser.contextMenus.create({
-            id: "brisk-download", title: "Download selected links with Brisk", contexts: ["selection"]
+            id: "brisk-download-selection", title: "Download selected links with Brisk", contexts: ["selection"]
         }, () => null);
     }).catch(console.log);
+    browser.contextMenus.create({
+        id: "brisk-download", title: "Download link with Brisk", contexts: ["link"]
+    }, () => null);
 }
 
 const pass = () => null;

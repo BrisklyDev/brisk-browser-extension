@@ -1,22 +1,32 @@
 import * as browser from "webextension-polyfill";
-import {log} from "./content-script";
-import {getSessionStoredValue, sendRequestToBrisk} from "./common";
+import {sendRequestToBrisk} from "./common";
 
 export function injectIframeDownloadButton(message) {
     document.querySelectorAll("video")
         .forEach(video => createDownloadVideoButton(video, message));
 }
 
+let isCancelPressed = false;
+let currentDropdown;
+
 async function createDownloadVideoButton(video, message) {
+    if (isCancelPressed) {
+        return;
+    }
+    if (currentDropdown) {
+        currentDropdown.style.display = "none";
+        currentDropdown = null;
+    }
+    isCancelPressed = false;
     const button = document.createElement("button");
     setInitialButtonStyle(button);
     button.appendChild(await createBriskLogoSvg());
     button.appendChild(document.createTextNode("Download Video"));
     const dropdown = createDropdown();
+    currentDropdown = dropdown;
     const cancel = createCancelIcon(dropdown, button);
     button.appendChild(cancel);
-    // createDropdownElements(message).forEach(({name, url}) => createDropdowmItem(name, url, dropdown));
-    createDropdownElements(message).forEach(info => createDropdowmItem(info, message.tabId, dropdown));
+    createDropdownElementInfos(message).forEach(info => createDropdownItem(info, message, dropdown));
     addButtonHoverEffect(button, dropdown);
     setButtonOnclick(button, cancel, dropdown);
     setOutsideClickDropdownHide(button, dropdown);
@@ -47,21 +57,25 @@ async function createBriskLogoSvg() {
     return svg;
 }
 
-function createDropdownElements(message) {
+function createDropdownElementInfos(message) {
     const subElements = [];
+    if (!message.isM3u8) {
+        return [{
+            url: message.url, name: message.suggestedName, referer: message.referer, isM3u8: false,
+        }];
+    }
     for (let stream of message.data) {
-        const streamInfo = {referer: stream.referer};
         if (stream.isMasterPlaylist) {
             for (let streamInf of stream.streamInfs) {
-                streamInfo['name'] = streamInf.fileName;
-                streamInfo['url'] = streamInf.url;
-                subElements.push(streamInfo);
+                subElements.push({
+                    name: streamInf.fileName, url: streamInf.url, referer: stream.referer, isM3u8: true,
+                });
             }
             continue;
         }
-        streamInfo['name'] = stream.fileName;
-        streamInfo['url'] = stream.url;
-        subElements.push(streamInfo);
+        subElements.push({
+            name: stream.fileName, url: stream.url, referer: stream.referer, isM3u8: true,
+        });
     }
     return subElements;
 }
@@ -77,11 +91,9 @@ function addButtonHoverEffect(button, dropdown) {
     });
 }
 
-function createDropdowmItem(info, tabId, dropdown) {
+function createDropdownItem(info, message, dropdown) {
     const item = document.createElement("div");
     item.textContent = info.name;
-    item.dataset.url = info.url;
-    item.dataset.referer = info.referer;
     item.style.padding = "8px 16px";
     item.style.cursor = "pointer";
     item.style.whiteSpace = "nowrap";
@@ -95,20 +107,28 @@ function createDropdowmItem(info, tabId, dropdown) {
         item.style.backgroundColor = "transparent";
     };
     item.onclick = (e) => {
-        // e.stopPropagation();
-        browser.runtime.sendMessage({type: 'get-vtt', tabId: tabId})
-            .then(vttData => {
-                log("Received direct VTT data:");  // Debug log
-                log(vttData);
-                dropdown.style.display = "none";
-            })
-            .catch(log);
-        // browser.runtime.sendMessage({ type: 'get-session-data', key: 'briskTab123' })
-        //     .then((data) => {
-        //         log(`Session data from background:${data}`);
-        //     });
+        e.stopPropagation();
+        dropdown.style.display = "none";
+        if (info.isM3u8) {
+            sendRequestToBrisk({
+                'type': 'm3u8',
+                'm3u8Url': info.url,
+                'vttUrls': message['vtt'],
+                'suggestedName': item.textContent,
+                'refererHeader': info.referer,
+                'tabId': message.tabId,
+            });
+        } else {
+            sendRequestToBrisk({
+                'type': 'single',
+                'data': {
+                    'url': info.url,
+                    'refererHeader': info.referer,
+                    'suggestedName': item.textContent,
+                },
+            });
+        }
     };
-
     dropdown.appendChild(item);
 }
 
@@ -169,10 +189,31 @@ function createCancelIcon(dropdown, button) {
     cancel.style.alignItems = "center";
     cancel.style.justifyContent = "center";
     cancel.style.height = "100%";
+
+    cancel.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            if (dropdown && dropdown.parentNode) {
+                dropdown.parentNode.removeChild(dropdown);
+            }
+            if (button && button.parentNode) {
+                button.parentNode.removeChild(button);
+            }
+            isCancelPressed = true;
+        } catch (error) {
+            console.error('Error removing download button:', error);
+        }
+    }, { passive: false });
+    cancel.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    }, { passive: false });
     cancel.onclick = (e) => {
         e.stopPropagation();
         if (dropdown) dropdown.remove();
         button.remove();
+        isCancelPressed = true;
     };
     return cancel;
 }

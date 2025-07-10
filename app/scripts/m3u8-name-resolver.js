@@ -1,15 +1,28 @@
 import * as browser from "webextension-polyfill";
 
+export async function refreshResolvers() {
+    const response = await fetch(
+        'https://raw.githubusercontent.com/BrisklyDev/brisk-extension-dynamic-plugins/refs/heads/main/m3u8-name-resolver.json'
+    );
+    if (response.status !== 200) {
+        return;
+    }
+    const json = await response.json();
+    await browser.storage.sync.set({
+        briskM3u8NameResolver: json,
+    });
+}
 
-export async function testResolver(host) {
+export async function generateVideoName(host, fileExtension) {
     let res = await browser.storage.sync.get(['briskM3u8NameResolver']);
     let resolver = res.briskM3u8NameResolver;
     let resolvers = resolver['resolvers'];
     for (let resolver of resolvers) {
         if (resolveHostname([resolver['hostname']]) === host) {
-            let asdasd = resolveVideoName(resolver);
+            return resolveVideoName(resolver);
         }
     }
+    return normalizeFileName(document.title);
 }
 
 function resolveHostname(hostName) {
@@ -19,7 +32,7 @@ function resolveHostname(hostName) {
     if (match) {
         return atob(match[1]);
     }
-    return hostName;
+    return hostName[0];
 }
 
 function resolveVideoName(resolver) {
@@ -66,7 +79,6 @@ function resolveTransform(rule, input) {
     loop:
         for (let transform of transformList) {
             let type = transform['type'];
-            log(type);
             switch (type) {
                 case 'trim':
                     result = result.trim();
@@ -107,8 +119,7 @@ function resolveReplace(transform, result) {
 
 function log(log) {
     browser.runtime.sendMessage({
-        type: 'log',
-        payload: log,
+        type: 'log', payload: log,
     });
 }
 
@@ -134,11 +145,25 @@ function resolveRegex(transform, input) {
     return null;
 }
 
-function resolveProperty(rule, input) {
-    switch (rule['property']) {
+function resolveProperty(part, input) {
+    switch (part['property']) {
         case 'textContent':
             return input.textContent;
+        case 'innerText':
+            return input.innerText;
+        case 'innerHTML':
+            return input.innerHTML;
+        case 'outerHTML':
+            return input.outerHTML;
         default:
             break;
     }
+}
+
+function normalizeFileName(name) {
+    return name
+        .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+        .replace(/\s+/g, ' ')
+        .replace(/^\.+/, '')
+        .trim();
 }

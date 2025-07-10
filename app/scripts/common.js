@@ -1,5 +1,4 @@
 import * as browser from "webextension-polyfill";
-import {log} from "./content-script";
 
 export const defaultSettings = {
     port: 3020,
@@ -8,6 +7,7 @@ export const defaultSettings = {
 };
 
 const extensionVersion = browser.runtime.getManifest().version;
+export const isFirefox = navigator.userAgent.includes("Firefox");
 
 export async function getBriskBaseUrl() {
     return "http://127.0.0.1:" + await getBriskPort();
@@ -19,6 +19,22 @@ export async function checkBriskRunning() {
         {method: 'POST'}
     );
 }
+
+export async function sendVttToBrisk(url, referer, tabId) {
+    await fetch(
+        await getBriskBaseUrl() + '/fetch-vtt',
+        {
+            method: 'POST',
+            body: JSON.stringify({
+                'url': url,
+                'referer': referer,
+                'extensionVersion': extensionVersion,
+                'tabId': tabId,
+            }),
+        }
+    );
+}
+
 
 export async function fetchM3u8DataViaBrisk(url, referer, tabId) {
     let suggestedName = await browser.tabs.sendMessage(tabId, {
@@ -36,6 +52,7 @@ export async function fetchM3u8DataViaBrisk(url, referer, tabId) {
                 'referer': referer,
                 'extensionVersion': extensionVersion,
                 'suggestedName': suggestedName,
+                'tabId': tabId,
             }),
         }
     );
@@ -44,6 +61,7 @@ export async function fetchM3u8DataViaBrisk(url, referer, tabId) {
         return;
     }
     delete json.captured;
+    await new Promise(resolve => setTimeout(resolve, 2000));
     const key = `briskTab${tabId}`;
     let result = await browser.storage.session.get(key);
     let value = result[key] ?? {};
@@ -55,7 +73,9 @@ export async function fetchM3u8DataViaBrisk(url, referer, tabId) {
     await browser.tabs.sendMessage(tabId, {
         type: "inject-download-video-button",
         tabId: tabId,
+        isM3u8: true,
         data: savedM3u8,
+        vtt: value['vtt']
     },);
 }
 
@@ -113,4 +133,9 @@ export async function getSessionStoredValue(tabId, type) {
     let result = await browser.storage.session.get(key);
     let value = result[key] ?? {};
     return value[type] || [];
+}
+
+export function getExtension(url) {
+    const match = url.match(/\.([a-zA-Z0-9]+)(?:\?|#|$)/);
+    return match ? match[1] : null;
 }

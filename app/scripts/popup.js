@@ -5,14 +5,12 @@ import {
     defaultSettings,
     getSettingsFromStorage, getSessionStoredValue
 } from "./common";
-import {log} from "./content-script";
 
 const tooltipEnabledText = "If disabled, downloads are immediately cancelled even if Brisk fails to get the file info.<br>(Downloads are not cancelled if Brisk is not running in the background)";
 const tooltipDisabledText = "If enabled, the extension waits for a response from Brisk that determines this file can be downloaded before cancelling the browser download.<br>";
 
 async function createM3u8List(tabId, m3u8Urls, listContainer) {
     let suggestedName = await browser.tabs.sendMessage(tabId, {type: 'get-suggested-video-name'});
-    log(`RECEIVED POPUP ${suggestedName}`);
     m3u8Urls.forEach((obj) => {
         const listItem = document.createElement('li');
         const nameSpan = document.createElement('span');
@@ -102,7 +100,6 @@ document.addEventListener('DOMContentLoaded', () => {
         enableCaptureCheckbox.checked = data.briskCaptureEnabled ?? defaultSettings.captureEnabled;
         responseWaitEnabledCheckbox.checked = data.briskResponseWaitEnabled ?? defaultSettings.briskResponseWaitEnabled;
     }).catch((a) => {
-        console.log(a);
         portInput.value = defaultSettings.port;
         enableCaptureCheckbox.checked = defaultSettings.captureEnabled;
         responseWaitEnabledCheckbox.checked = defaultSettings.briskResponseWaitEnabled;
