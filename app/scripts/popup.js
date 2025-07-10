@@ -81,7 +81,7 @@ async function getCurrentTabId() {
 
 function handleDynamicTooltipMessage(responseWaitEnabledCheckbox, tooltip) {
     function updateTooltip() {
-        tooltip.innerHTML = responseWaitEnabledCheckbox.checked ? tooltipEnabledText : tooltipDisabledText;
+        tooltip.textContent = responseWaitEnabledCheckbox.checked ? tooltipEnabledText : tooltipDisabledText;
     }
 
     updateTooltip();
