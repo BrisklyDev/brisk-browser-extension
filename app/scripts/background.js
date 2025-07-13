@@ -118,6 +118,9 @@ browser.runtime.onMessage.addListener(async (message) => {
     if (message.type === 'log') {
         console.log(message.payload);
     }
+    if (message.type === 'send-to-brisk') {
+        sendRequestToBrisk(message.payload);
+    }
 })
 
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {

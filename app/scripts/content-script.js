@@ -25,6 +25,13 @@ export function log(log) {
     });
 }
 
+export function sendToBriskViaBackground(body) {
+    browser.runtime.sendMessage({
+        type: 'send-to-brisk',
+        payload: body,
+    });
+}
+
 
 function debounce(fn, delay) {
     let timer = null;

@@ -1,5 +1,6 @@
 import * as browser from "webextension-polyfill";
 import {sendRequestToBrisk} from "./common";
+import {log, sendToBriskViaBackground} from "./content-script";
 
 export function injectIframeDownloadButton(message) {
     document.querySelectorAll("video")
@@ -91,7 +92,7 @@ function addButtonHoverEffect(button, dropdown) {
     });
 }
 
-function createDropdownItem(info, message, dropdown) {
+async function createDropdownItem(info, message, dropdown) {
     const item = document.createElement("div");
     item.textContent = info.name;
     item.style.padding = "8px 16px";
@@ -106,11 +107,11 @@ function createDropdownItem(info, message, dropdown) {
     item.onmouseleave = () => {
         item.style.backgroundColor = "transparent";
     };
-    item.onclick = (e) => {
+    item.onclick = async (e) => {
         e.stopPropagation();
         dropdown.style.display = "none";
         if (info.isM3u8) {
-            sendRequestToBrisk({
+            sendToBriskViaBackground({
                 'type': 'm3u8',
                 'm3u8Url': info.url,
                 'vttUrls': message['vtt'],
@@ -119,7 +120,7 @@ function createDropdownItem(info, message, dropdown) {
                 'tabId': message.tabId,
             });
         } else {
-            sendRequestToBrisk({
+            sendToBriskViaBackground({
                 'type': 'single',
                 'data': {
                     'url': info.url,
@@ -204,11 +205,11 @@ function createCancelIcon(dropdown, button) {
         } catch (error) {
             console.error('Error removing download button:', error);
         }
-    }, { passive: false });
+    }, {passive: false});
     cancel.addEventListener('mousedown', (e) => {
         e.preventDefault();
         e.stopPropagation();
-    }, { passive: false });
+    }, {passive: false});
     cancel.onclick = (e) => {
         e.stopPropagation();
         if (dropdown) dropdown.remove();
