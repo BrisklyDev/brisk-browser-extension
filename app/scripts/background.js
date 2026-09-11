@@ -18,11 +18,18 @@ let urlCookies = {};
 
 /// TODO change to master url
 browser.runtime.onInstalled.addListener(async () => {
-    await browser.storage.sync.set({
-        briskPort: defaultSettings.port,
-        briskResponseWaitEnabled: defaultSettings.briskResponseWaitEnabled,
-        briskCaptureEnabled: defaultSettings.captureEnabled,
-    });
+    const storedSettings = await browser.storage.sync.get([
+        'briskPort',
+        'briskResponseWaitEnabled',
+        'briskCaptureEnabled',
+        'briskVideoButtonEnabled',
+    ]);
+    const missingSettings = {};
+    if (storedSettings.briskPort == null) missingSettings.briskPort = defaultSettings.port;
+    if (storedSettings.briskResponseWaitEnabled == null) missingSettings.briskResponseWaitEnabled = defaultSettings.briskResponseWaitEnabled;
+    if (storedSettings.briskCaptureEnabled == null) missingSettings.briskCaptureEnabled = defaultSettings.captureEnabled;
+    if (storedSettings.briskVideoButtonEnabled == null) missingSettings.briskVideoButtonEnabled = defaultSettings.videoButtonEnabled;
+    if (Object.keys(missingSettings).length > 0) await browser.storage.sync.set(missingSettings);
 });
 
 browser.downloads.onCreated.addListener(sendBriskDownloadAdditionRequest);

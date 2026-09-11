@@ -3,6 +3,7 @@ import * as browser from "webextension-polyfill";
 export const defaultSettings = {
     port: 3020,
     captureEnabled: true,
+    videoButtonEnabled: true,
     briskResponseWaitEnabled: true,
 };
 
@@ -103,7 +104,7 @@ export async function sendRequestToBrisk(body) {
 
 export async function getSettingsFromStorage() {
     return await browser.storage.sync.get(
-        ['briskPort', 'briskResponseWaitEnabled', 'briskCaptureEnabled']
+        ['briskPort', 'briskResponseWaitEnabled', 'briskCaptureEnabled', 'briskVideoButtonEnabled']
     );
 }
 
@@ -120,6 +121,11 @@ export async function isResponseWaitEnabled() {
 export async function isCaptureEnabled() {
     let result = await browser.storage.sync.get(['briskCaptureEnabled']);
     return result.briskCaptureEnabled ?? defaultSettings.captureEnabled;
+}
+
+export async function isVideoButtonEnabled() {
+    let result = await browser.storage.sync.get(['briskVideoButtonEnabled']);
+    return result.briskVideoButtonEnabled ?? defaultSettings.videoButtonEnabled;
 }
 
 export function extractResolution(text) {

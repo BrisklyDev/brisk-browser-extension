@@ -93,15 +93,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const portInput = document.getElementById('port');
     const saveButton = document.getElementById('save-port');
     const enableCaptureCheckbox = document.getElementById('enable-capture');
+    const showVideoDownloadButtonCheckbox = document.getElementById('show-video-download-button');
     const responseWaitEnabledCheckbox = document.getElementById('enable-wait-brisk-response');
 
     getSettingsFromStorage().then((data) => {
         portInput.value = data.briskPort ?? defaultSettings.port;
         enableCaptureCheckbox.checked = data.briskCaptureEnabled ?? defaultSettings.captureEnabled;
+        showVideoDownloadButtonCheckbox.checked = data.briskVideoButtonEnabled ?? defaultSettings.videoButtonEnabled;
         responseWaitEnabledCheckbox.checked = data.briskResponseWaitEnabled ?? defaultSettings.briskResponseWaitEnabled;
     }).catch((a) => {
         portInput.value = defaultSettings.port;
         enableCaptureCheckbox.checked = defaultSettings.captureEnabled;
+        showVideoDownloadButtonCheckbox.checked = defaultSettings.videoButtonEnabled;
         responseWaitEnabledCheckbox.checked = defaultSettings.briskResponseWaitEnabled;
     });
 
@@ -115,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await browser.storage.sync.set({
             briskPort: port,
             briskCaptureEnabled: enableCaptureCheckbox.checked,
+            briskVideoButtonEnabled: showVideoDownloadButtonCheckbox.checked,
             briskResponseWaitEnabled: responseWaitEnabledCheckbox.checked,
         });
         alert("Settings saves successfully");

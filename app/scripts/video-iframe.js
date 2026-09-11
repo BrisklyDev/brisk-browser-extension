@@ -1,11 +1,29 @@
 import * as browser from "webextension-polyfill";
-import {sendRequestToBrisk} from "./common";
+import {isVideoButtonEnabled} from "./common";
 import {log, sendToBriskViaBackground} from "./content-script";
 
-export function injectIframeDownloadButton(message) {
+const VIDEO_DOWNLOAD_BUTTON_ATTRIBUTE = "data-brisk-video-download-button";
+
+export async function injectIframeDownloadButton(message) {
+    if (!(await isVideoButtonEnabled())) {
+        removeIframeDownloadButtons();
+        return;
+    }
     document.querySelectorAll("video")
         .forEach(video => createDownloadVideoButton(video, message));
 }
+
+function removeIframeDownloadButtons() {
+    document.querySelectorAll(`[${VIDEO_DOWNLOAD_BUTTON_ATTRIBUTE}]`)
+        .forEach(button => button.remove());
+    currentDropdown = null;
+}
+
+browser.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'sync' && changes.briskVideoButtonEnabled?.newValue === false) {
+        removeIframeDownloadButtons();
+    }
+});
 
 let isCancelPressed = false;
 let currentDropdown;
@@ -20,6 +38,7 @@ async function createDownloadVideoButton(video, message) {
     }
     isCancelPressed = false;
     const button = document.createElement("button");
+    button.setAttribute(VIDEO_DOWNLOAD_BUTTON_ATTRIBUTE, "");
     setInitialButtonStyle(button);
     button.appendChild(await createBriskLogoSvg());
     button.appendChild(document.createTextNode("Download Video"));
@@ -237,4 +256,3 @@ function createDropdown() {
     dropdown.style.padding = "8px 0";
     return dropdown;
 }
-
