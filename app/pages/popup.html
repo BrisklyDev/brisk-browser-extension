@@ -3,49 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extension Popup</title>
-    <link rel="stylesheet" href="../styles/common.css">
+    <title>Brisk</title>
+    <link rel="stylesheet" href="../styles/popup.css">
 </head>
 <body>
-<div class="container">
-    <div class="tabs">
-        <button class="tab-button active" data-tab="video-streams">🎥 Video Streams</button>
-        <button class="tab-button" data-tab="settings">⚙️ Settings</button>
-    </div>
-    <div class="tab-content active" id="video-streams">
-        <ul id="m3u8-list" class="streams-list">
-        </ul>
-    </div>
-    <div class="tab-content" id="settings">
-        <div class="toggle-setting">
-            <label class="switch">
-                <input type="checkbox" id="enable-capture">
-                <span class="slider"></span>
-            </label>
-            <span class="label-text">Enable download capture</span>
+<div class="app">
+    <header class="header">
+        <div class="brand">
+            <svg class="brand-logo" viewBox="0 0 53.5 65.75" aria-hidden="true"><path fill="currentColor" d="M35.48.09c.95,0,1.62.63,1.36,1.27l-7.32,17.31c-.25.62.42,1.26,1.36,1.26l16.35.09c.94.01,1.62.63,1.36,1.27l-10.9,25.85h14.78c.93,0,1.38.78.73,1.22l-25.73,17.19c-.4.26-1.03.26-1.42,0L.32,48.37c-.68-.44-.21-1.22.71-1.22h15.6s.04-.08.05-.13l7.3-17.31c.25-.62-.42-1.26-1.36-1.26l-16.35-.09c-.94,0-1.61-.63-1.36-1.26L16.05.71C16.23.28,16.8,0,17.43,0l18.05.09Z"/></svg>
+            <span class="brand-name">Brisk</span>
         </div>
-        <div class="toggle-setting">
-            <label class="switch">
-                <input type="checkbox" id="show-video-download-button">
-                <span class="slider"></span>
-            </label>
-            <span class="label-text">Show download button on videos</span>
-        </div>
-        <div class="toggle-setting">
-            <label class="switch tooltip-wrapper">
-                <input type="checkbox" id="enable-wait-brisk-response">
-                <span class="slider"></span>
-                <span class="tooltip-text" id="wait-tooltip"></span>
-            </label>
-            <span class="label-text">Wait for Brisk's response before cancelling browser download</span>
-        </div>
-        <div class="port-setting">
-            <label for="port">Port:</label>
-            <input type="number" id="port" placeholder="3020" min="1" max="65535">
-            <button id="save-port">Save</button>
+        <span class="status" id="brisk-status" data-state="checking">Checking…</span>
+    </header>
+
+    <div class="banner" id="not-running-banner" hidden>
+        <div>
+            <strong>Brisk isn't running.</strong>
+            Start the Brisk app to download, or <a id="get-brisk-link" target="_blank" rel="noopener noreferrer">get Brisk</a>.
         </div>
     </div>
+
+    <nav class="tabs" role="tablist">
+        <button class="tab-button active" role="tab" aria-selected="true" data-tab="videos">
+            Videos<span class="count" id="video-count" hidden></span>
+        </button>
+        <button class="tab-button" role="tab" aria-selected="false" data-tab="settings">Settings</button>
+    </nav>
+
+    <main class="content">
+        <section class="tab-content active" id="videos" role="tabpanel">
+            <ul id="video-list" class="video-list"></ul>
+            <div class="empty" id="video-empty" hidden>
+                <div class="empty-title">No videos detected on this page</div>
+                <div class="empty-text">Play a video and it will show up here. You can also hover over a video and use the <strong>Download</strong> button.</div>
+            </div>
+        </section>
+
+        <section class="tab-content" id="settings" role="tabpanel">
+            <div class="card">
+                <label class="setting">
+                    <span class="setting-text">
+                        <span class="setting-title">Capture browser downloads</span>
+                        <span class="setting-desc">Send downloads started in the browser to Brisk.</span>
+                    </span>
+                    <input type="checkbox" id="enable-capture">
+                </label>
+                <label class="setting">
+                    <span class="setting-text">
+                        <span class="setting-title">Download button on videos</span>
+                        <span class="setting-desc">Show a Brisk button when hovering over a video.</span>
+                    </span>
+                    <input type="checkbox" id="show-video-download-button">
+                </label>
+                <label class="setting">
+                    <span class="setting-text">
+                        <span class="setting-title">Wait for Brisk's response</span>
+                        <span class="setting-desc" id="wait-description"></span>
+                    </span>
+                    <input type="checkbox" id="enable-wait-brisk-response">
+                </label>
+            </div>
+
+            <div class="card">
+                <label class="field-label" for="port">Brisk port</label>
+                <div class="field-row">
+                    <input type="number" id="port" placeholder="3020" min="1" max="65535" inputmode="numeric">
+                    <button id="save-port" class="primary">Save</button>
+                </div>
+                <div class="field-hint" id="port-hint">Must match the port set in Brisk's extension settings.</div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <span id="version"></span>
+        <a href="https://github.com/AminBhst/brisk-browser-extension" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </footer>
 </div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="../scripts/popup.js"></script>
 </body>
 </html>

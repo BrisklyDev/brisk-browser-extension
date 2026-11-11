@@ -1,33 +1,60 @@
 import * as browser from "webextension-polyfill";
+import {sanitizeFileName} from "./common";
 
-export async function refreshResolvers() {
-    const response = await fetch(
-        'https://raw.githubusercontent.com/BrisklyDev/brisk-extension-dynamic-plugins/refs/heads/main/m3u8-name-resolver.json'
-    );
-    if (response.status !== 200) {
-        return;
+const RESOLVERS_URL = 'https://raw.githubusercontent.com/BrisklyDev/brisk-extension-dynamic-plugins/refs/heads/main/m3u8-name-resolver.json';
+const RESOLVERS_KEY = 'briskM3u8NameResolver';
+const RESOLVERS_FETCHED_AT_KEY = 'briskM3u8NameResolverFetchedAt';
+const REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Downloads the latest name resolvers. They are stored in storage.local because the
+ * resolver file is larger than the 8KB per-item quota of storage.sync.
+ */
+export async function refreshResolvers(force = false) {
+    try {
+        if (!force) {
+            const stored = await browser.storage.local.get([RESOLVERS_FETCHED_AT_KEY]);
+            const fetchedAt = stored[RESOLVERS_FETCHED_AT_KEY] || 0;
+            if (Date.now() - fetchedAt < REFRESH_INTERVAL_MS) return;
+        }
+        const response = await fetch(RESOLVERS_URL, {cache: 'no-cache'});
+        if (response.status !== 200) {
+            return;
+        }
+        const json = await response.json();
+        if (!Array.isArray(json?.resolvers)) {
+            return;
+        }
+        await browser.storage.local.set({
+            [RESOLVERS_KEY]: json,
+            [RESOLVERS_FETCHED_AT_KEY]: Date.now(),
+        });
+    } catch (e) {
+        // Offline or blocked: the page title is used as the video name instead
     }
-    const json = await response.json();
-    await browser.storage.sync.set({
-        briskM3u8NameResolver: json,
-    });
 }
 
-export async function generateVideoName(host, fileExtension) {
-    let res = await browser.storage.sync.get(['briskM3u8NameResolver']);
-    let resolver = res.briskM3u8NameResolver;
-    let resolvers = resolver['resolvers'];
-    for (let resolver of resolvers) {
-        if (resolveHostname([resolver['hostname']]) === host) {
-            return resolveVideoName(resolver);
+/**
+ * Builds a file name (without extension) for videos on the current page.
+ * Never throws: falls back to the page title.
+ */
+export async function generateVideoName(host) {
+    try {
+        const stored = await browser.storage.local.get([RESOLVERS_KEY]);
+        const resolvers = stored[RESOLVERS_KEY]?.resolvers || [];
+        for (const resolver of resolvers) {
+            if (resolveHostname([resolver['hostname']]) !== host) continue;
+            const name = sanitizeFileName(resolveVideoName(resolver));
+            if (name) return name;
         }
+    } catch (e) {
+        // A broken resolver must never prevent the download button from working
     }
     return normalizeFileName(document.title);
 }
 
 function resolveHostname(hostName) {
-    const regexStr = "\\[atob\\((.+)\\)\\]";
-    const regex = new RegExp(regexStr);
+    const regex = /\[atob\((.+)\)\]/;
     const match = hostName.toString().match(regex);
     if (match) {
         return atob(match[1]);
@@ -36,21 +63,21 @@ function resolveHostname(hostName) {
 }
 
 function resolveVideoName(resolver) {
-    let parts = resolver['parts'];
-    let partsResult = {};
-    for (let part of parts) {
-        let name = part['name'];
-        let selectorResult = resolveSelector(part, partsResult);
-        let property = resolveProperty(part, selectorResult);
-        let transform = resolveTransform(part, property ?? selectorResult);
-        partsResult[name] = transform ?? property;
-        if (transform == null) {
+    const partsResult = {};
+    for (const part of resolver['parts'] || []) {
+        const name = part['name'];
+        try {
+            const selectorResult = resolveSelector(part, partsResult);
+            const property = resolveProperty(part, selectorResult);
+            const transform = resolveTransform(part, property ?? selectorResult);
+            partsResult[name] = transform ?? null;
+        } catch (e) {
             partsResult[name] = null;
         }
     }
 
     let acceptedFormat;
-    for (const {validation, format} of resolver.outputs) {
+    for (const {validation, format} of resolver.outputs || []) {
         const {type, values} = validation;
         const areAllNotNull = values.every(v => partsResult[v] != null);
         const areAllNull = values.every(v => partsResult[v] == null);
@@ -67,85 +94,79 @@ function resolveVideoName(resolver) {
                 break;
         }
     }
+    if (acceptedFormat == null) {
+        return null;
+    }
     return acceptedFormat.toString().replace(/\{([^}]+)\}/g, (_, key) => {
         return partsResult[key] ?? "";
     });
 }
 
-
 function resolveTransform(rule, input) {
-    let transformList = rule['transform'];
+    if (typeof input !== 'string') {
+        return input == null || typeof input === 'object' ? null : String(input);
+    }
     let result = input;
-    loop:
-        for (let transform of transformList) {
-            let type = transform['type'];
-            switch (type) {
-                case 'trim':
-                    result = result.trim();
-                    break;
-                case 'replace':
-                    result = resolveReplace(transform, result);
-                    break;
-                case 'replaceAll':
-                    result = result.replaceAll(transform['searchValue'], transform['replacer'].toString);
-                    break;
-                case 'match':
-                    let regexResult = resolveRegex(transform, result);
-                    if (!regexResult && transform['required']) {
-                        result = null;
-                        break loop;
-                    }
-                    result = regexResult;
-                    break;
-                case 'padStart':
-                    result = result.padStart(parseInt(transform['number'].toString()), transform['fillString'])
-                    break;
-                case 'padEnd':
-                    result = result.padEnd(parseInt(transform['number'].toString()), transform['fillString'])
-                    break;
+    for (const transform of rule['transform'] || []) {
+        if (result == null) break;
+        switch (transform['type']) {
+            case 'trim':
+                result = result.trim();
+                break;
+            case 'replace':
+                result = resolveReplace(transform, result);
+                break;
+            case 'replaceAll':
+                result = result.replaceAll(transform['searchValue'], String(transform['replacer'] ?? ''));
+                break;
+            case 'match': {
+                const regexResult = resolveRegex(transform, result);
+                if (!regexResult && transform['required']) {
+                    return null;
+                }
+                result = regexResult;
+                break;
             }
+            case 'padStart':
+                result = result.padStart(parseInt(transform['number'].toString()), transform['fillString']);
+                break;
+            case 'padEnd':
+                result = result.padEnd(parseInt(transform['number'].toString()), transform['fillString']);
+                break;
         }
+    }
     return result;
 }
 
 function resolveReplace(transform, result) {
     const regex = transform['regex'];
     if (regex) {
-        const regExp = new RegExp(regex, 'g');
-        return result.replace(regExp, transform['replacer']);
+        return result.replace(new RegExp(regex, 'g'), transform['replacer']);
     }
     return result.replaceAll(transform['searchStr'], transform['replacer']);
 }
 
-function log(log) {
-    browser.runtime.sendMessage({
-        type: 'log', payload: log,
-    });
-}
-
-
 function resolveSelector(rule, parts) {
-    let selector = rule['selector'];
+    const selector = rule['selector'];
     if (selector === "@{document.title}") {
         return document.title.toString();
     }
-    let isRef = selector.match(/@\{([^}]+)\}/);
+    const isRef = selector.match(/@\{([^}]+)\}/);
     if (isRef) {
         return parts[isRef[1]];
     }
-    return isRef ? parts[isRef[1]] : document.querySelector(selector);
+    return document.querySelector(selector);
 }
 
 function resolveRegex(transform, input) {
-    const regex = new RegExp(transform['regex'], transform['flags']);
-    const match = input.match(regex);
-    if (match) {
-        return input.match(regex)?.[transform['matchIndex']];
-    }
-    return null;
+    const match = input.match(new RegExp(transform['regex'], transform['flags']));
+    return match ? match[transform['matchIndex']] ?? null : null;
 }
 
 function resolveProperty(part, input) {
+    if (input == null || typeof input !== 'object') {
+        return undefined;
+    }
     switch (part['property']) {
         case 'textContent':
             return input.textContent;
@@ -156,14 +177,10 @@ function resolveProperty(part, input) {
         case 'outerHTML':
             return input.outerHTML;
         default:
-            break;
+            return undefined;
     }
 }
 
 function normalizeFileName(name) {
-    return name
-        .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
-        .replace(/\s+/g, ' ')
-        .replace(/^\.+/, '')
-        .trim();
+    return sanitizeFileName(name || '');
 }

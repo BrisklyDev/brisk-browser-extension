@@ -1,8 +1,8 @@
 {
   "name": "Brisk",
   "short_name": "Brisk",
-  "description": "Browser extension for Brisk download manager",
-  "version": "1.4.1",
+  "description": "Send downloads and videos from your browser to the Brisk download manager app.",
+  "version": "1.5.0",
   "__firefox__browser_specific_settings": {
     "gecko": {
       "id": "{9ca5a4a8-58d1-4a47-8e0d-5e53a21c9a7b}"
@@ -15,14 +15,36 @@
   },
   "content_scripts": [
     {
-      "run_at": "document_idle",
+      "run_at": "document_start",
       "all_frames": true,
       "matches": [
         "<all_urls>"
       ],
       "js": [
         "scripts/content-script.js"
-      ]
+      ],
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
+    },
+    {
+      "run_at": "document_idle",
+      "matches": [
+        "*://*.tiktok.com/*"
+      ],
+      "js": [
+        "scripts/tiktok-main.js"
+      ],
+      "world": "MAIN"
+    },
+    {
+      "run_at": "document_idle",
+      "matches": [
+        "*://*.instagram.com/*"
+      ],
+      "js": [
+        "scripts/instagram-main.js"
+      ],
+      "world": "MAIN"
     }
   ],
   "__firefox__background": {
@@ -48,25 +70,12 @@
     "32": "images/logo32.png",
     "128": "images/logo128.png"
   },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "scripts/*",
-        "styles/*",
-        "images/*"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
-    }
-  ],
   "permissions": [
     "downloads",
     "storage",
     "cookies",
     "contextMenus",
-    "webRequest",
-    "tabs"
+    "webRequest"
   ],
   "host_permissions": [
     "<all_urls>"

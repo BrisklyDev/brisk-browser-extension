@@ -1,0 +1,144 @@
+name: Release All Browsers
+
+on:
+  workflow_dispatch:
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.extract_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from manifest.json
+        id: extract_version
+        run: |
+          MANIFEST_VERSION=$(jq -r '.version' app/manifest.json)
+          PACKAGE_VERSION=$(jq -r '.version' package.json)
+          if [ "$MANIFEST_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "::error::Version mismatch: app/manifest.json=$MANIFEST_VERSION, package.json=$PACKAGE_VERSION"
+            exit 1
+          fi
+          echo "version=$MANIFEST_VERSION" >> "$GITHUB_OUTPUT"
+
+  Build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        browser: [chrome, edge, firefox, opera]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build ${{ matrix.browser }}
+        run: |
+          rm -rf packages
+          yarn build ${{ matrix.browser }}
+          ls -la packages
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-${{ matrix.browser }}
+          path: packages/brisk-browser-extension.v${{ needs.version.outputs.version }}.${{ matrix.browser }}.*
+          if-no-files-found: error
+          retention-days: 1
+
+  Release:
+    runs-on: ubuntu-latest
+    needs: [Build, version]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all browser packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: extension-*
+          path: packages
+          merge-multiple: true
+
+      - name: List packages
+        run: ls -la packages
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: v${{ needs.version.outputs.version }}
+          body_path: ./.github/release.md
+          fail_on_unmatched_files: true
+          files: |
+            packages/brisk-browser-extension.v${{ needs.version.outputs.version }}.chrome.zip
+            packages/brisk-browser-extension.v${{ needs.version.outputs.version }}.edge.zip
+            packages/brisk-browser-extension.v${{ needs.version.outputs.version }}.firefox.xpi
+            packages/brisk-browser-extension.v${{ needs.version.outputs.version }}.opera.crx
+
+  Release-Firefox-AMO:
+    runs-on: ubuntu-latest
+    needs: [Release, version]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download firefox package
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-firefox
+          path: packages
+
+      # Submit the exact build that was attached to the GitHub release
+      - name: Extract firefox package
+        run: |
+          mkdir -p amo-build
+          unzip -q packages/brisk-browser-extension.v${{ needs.version.outputs.version }}.firefox.xpi -d amo-build
+
+      # AMO requires the original source for bundled (webpack) code
+      - name: Create source code archive
+        run: git archive --format=zip -o source.zip HEAD -- . ':!packages'
+
+      - name: Create AMO metadata
+        run: |
+          cat > amo-metadata.json <<'EOF'
+          {
+            "version": {
+              "approval_notes": "Built with webextension-toolbox (webpack). To reproduce: install Node.js 22 and yarn, then run `yarn install --frozen-lockfile && yarn build firefox`. Output is in dist/firefox."
+            }
+          }
+          EOF
+
+      - name: Submit to addons.mozilla.org
+        run: |
+          npx --yes web-ext@8.3.0 sign \
+            --source-dir amo-build \
+            --artifacts-dir web-ext-artifacts \
+            --channel listed \
+            --api-key "${{ secrets.AMO_JWT_ISSUER }}" \
+            --api-secret "${{ secrets.AMO_JWT_SECRET }}" \
+            --upload-source-code source.zip \
+            --amo-metadata amo-metadata.json \
+            --approval-timeout 0
