@@ -39,13 +39,6 @@ yarn install
 yarn build {browser-name}
 ```
 
-### Testing the video button
-`test/video-test.html` covers the supported video setups (direct file, hls.js stream, covered video, iframes, shadow DOM, a video added after load):
-```shell
-cd test && python3 -m http.server 8080
-# open http://localhost:8080/video-test.html with the extension loaded
-```
-
 ## :busts_in_silhouette: Community
 
   <div><a href="https://discord.gg/hGBDWNDHG3"><img src="https://discord.com/api/guilds/1298990692000989225/widget.png?style=banner2" alt="cord.nvim"/></a></div>
