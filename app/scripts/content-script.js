@@ -1,67 +1,57 @@
 import * as browser from 'webextension-polyfill';
-import {generateVideoName} from "./m3u8-name-resolver";
-import {injectIframeDownloadButton} from "./video-iframe";
+import {isBlockedVideoHost, isVideoButtonEnabled} from "./common";
+import {VideoOverlay} from "./lib/video-overlay";
+import {getPageVideoName} from "./lib/video-sources";
 
-const hostname = window.location.hostname.replace(/^www\./, '');
+const isTopFrame = window.top === window;
 
-browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'get-suggested-video-name' && window.self === window.top) {
-        (async () => {
-            const suggestedName = await generateVideoName(hostname, message.fileExtension);
-            sendResponse(suggestedName);
-        })();
-        return true;
-    }
-    if (message.type === 'inject-download-video-button') {
-        injectIframeDownloadButton(message);
+// ---------------------------------------------------------------------------
+// Video download button
+// ---------------------------------------------------------------------------
+
+browser.runtime.onMessage.addListener((message) => {
+    if (message?.type === 'brisk:get-page-video-name' && isTopFrame) {
+        return getPageVideoName().catch(() => null);
     }
 });
 
-
-export function log(log) {
-    browser.runtime.sendMessage({
-        type: 'log',
-        payload: log,
+if (!isBlockedVideoHost(location.hostname)) {
+    const overlay = new VideoOverlay();
+    const apply = (enabled) => enabled ? overlay.enable() : overlay.disable();
+    isVideoButtonEnabled().then(apply).catch(() => apply(true));
+    browser.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'sync' && changes.briskVideoButtonEnabled) {
+            apply(changes.briskVideoButtonEnabled.newValue !== false);
+        }
     });
 }
 
-export function sendToBriskViaBackground(body) {
-    browser.runtime.sendMessage({
-        type: 'send-to-brisk',
-        payload: body,
-    });
-}
-
+// ---------------------------------------------------------------------------
+// "Download selected links with Brisk" context menu support
+// ---------------------------------------------------------------------------
 
 function debounce(fn, delay) {
     let timer = null;
-    return function () {
-        let context = this, args = arguments;
+    return function (...args) {
         clearTimeout(timer);
-        timer = setTimeout(function () {
-            fn.apply(context, args);
-        }, delay);
+        timer = setTimeout(() => fn.apply(this, args), delay);
     };
 }
 
-document.addEventListener("selectionchange", debounce(function (event) {
+document.addEventListener("selectionchange", debounce(function () {
     try {
-        let extractedHrefs = getHrefOfAllSelectedLinks();
-        sendHrefsToBackground(extractedHrefs);
+        const selection = document.getSelection();
+        if (!selection || selection.isCollapsed) return;
+        const links = getHrefOfAllSelectedLinks();
+        browser.runtime.sendMessage({type: 'brisk:selection-links', links}).catch(() => null);
     } catch (e) {
         console.log(e);
     }
 }, 250));
 
-
-function sendHrefsToBackground(hrefs) {
-    browser.runtime.sendMessage(hrefs);
-}
-
 const getHrefOfAllSelectedLinks = () => getSelectedNodes()
-    .filter(node => node.tagName === "A")
+    .filter(node => node.tagName === "A" && node.href)
     .map(node => node.href);
-
 
 function getSelectedNodes() {
     const selection = document.getSelection();
@@ -81,4 +71,3 @@ function getSelectedNodes() {
 
     return nodeList;
 }
-

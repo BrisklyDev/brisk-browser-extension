@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brisk video test page</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 24px; background: #fafafa; }
+        section { margin-bottom: 32px; }
+        video, iframe { width: 560px; height: 315px; background: #000; display: block; border: 0; }
+        .covered { position: relative; width: 560px; }
+        .covered .overlay { position: absolute; inset: 0; } /* invisible layer above the video, like many players */
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.15/hls.min.js"></script>
+</head>
+<body>
+<h1>Brisk video test page</h1>
+<p>Serve this folder over HTTP (for example <code>python3 -m http.server 8080</code> in <code>test/</code>) and hover over each video.</p>
+
+<section>
+    <h2>1. Direct MP4 file</h2>
+    <video id="direct" controls muted preload="metadata"
+           src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"></video>
+</section>
+
+<section>
+    <h2>2. HLS stream played with hls.js (blob: source)</h2>
+    <video id="hls" controls muted></video>
+</section>
+
+<section>
+    <h2>3. Video covered by an invisible overlay</h2>
+    <div class="covered">
+        <video id="covered" controls muted preload="metadata"
+               src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm"></video>
+        <div class="overlay"></div>
+    </div>
+</section>
+
+<section>
+    <h2>4. Video inside an iframe</h2>
+    <iframe id="frame" src="frame.html"></iframe>
+    <h2>4b. Video inside a srcdoc iframe</h2>
+    <iframe id="srcdoc-frame" srcdoc='<body style="margin:0;background:#000"><video controls muted preload="metadata" style="width:100%;height:100vh" src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"></video></body>'></iframe>
+</section>
+
+<section>
+    <h2>5. Video inside a shadow root</h2>
+    <div id="shadow-host"></div>
+</section>
+
+<section>
+    <h2>6. Video added after page load</h2>
+    <div id="late"></div>
+</section>
+
+<script>
+    const hlsVideo = document.getElementById('hls');
+    const hlsUrl = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
+    if (window.Hls && Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(hlsVideo);
+    } else {
+        hlsVideo.src = hlsUrl;
+    }
+
+    const shadowRoot = document.getElementById('shadow-host').attachShadow({mode: 'open'});
+    shadowRoot.innerHTML = '<video controls muted preload="metadata" style="width:560px;height:315px;background:#000;display:block" src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4#shadow"></video>';
+
+    setTimeout(() => {
+        const video = document.createElement('video');
+        video.controls = true;
+        video.muted = true;
+        video.preload = 'metadata';
+        video.src = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4?late=1';
+        document.getElementById('late').appendChild(video);
+    }, 1500);
+</script>
+</body>
+</html>

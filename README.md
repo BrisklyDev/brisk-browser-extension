@@ -24,7 +24,11 @@ For Firefox users, the extension is available on the official [Firefox Addons We
 ## :rocket: Features
 - Capturing download requests from the browser and directly adding them to Brisk
 - Extracting all download links from a selected text and adding them to Brisk all at once
-- Capturing m3u8 video streams from the browser
+- A download button on videos (shown on hover) that lists the available qualities: video files (MP4, WebM, ...), HLS (m3u8) streams, videos in iframes and shadow DOM players
+- Full-quality MP4 downloads with audio for X (Twitter) videos and GIFs
+- A list of all videos detected on the current page in the toolbar popup
+
+> The Brisk desktop app must be running for downloads to work. YouTube is not supported.
 
 ## :film_projector: Demo
 https://github.com/user-attachments/assets/fc63dcf4-0e69-4610-9c92-f26f12f9ad01
@@ -33,6 +37,13 @@ https://github.com/user-attachments/assets/fc63dcf4-0e69-4610-9c92-f26f12f9ad01
 ```shell
 yarn install
 yarn build {browser-name}
+```
+
+### Testing the video button
+`test/video-test.html` covers the supported video setups (direct file, hls.js stream, covered video, iframes, shadow DOM, a video added after load):
+```shell
+cd test && python3 -m http.server 8080
+# open http://localhost:8080/video-test.html with the extension loaded
 ```
 
 ## :busts_in_silhouette: Community
